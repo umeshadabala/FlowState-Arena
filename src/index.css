@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #020617;
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #22d3ee30;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #22d3ee60;
+}
+
+/* ── Glassmorphism ── */
+.glass {
+  background: rgba(15, 23, 42, 0.50);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(34, 211, 238, 0.10);
+}
+
+.glass-strong {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(34, 211, 238, 0.15);
+}
+
+/* ── Reusable Components ── */
+.section-header {
+  @apply flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest;
+}
+
+.stat-pill {
+  @apply flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono;
+  background: rgba(15, 23, 42, 0.60);
+  border: 1px solid rgba(34, 211, 238, 0.08);
+}
+
+/* ── Gradient Text ── */
+.gradient-text {
+  background: linear-gradient(135deg, #22d3ee, #d946ef);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Grid Pattern Background ── */
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.025) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* ── Animations ── */
+@keyframes pulseMagenta {
+
+  0%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 3px #d946ef50);
+  }
+
+  50% {
+    opacity: 0.6;
+    filter: drop-shadow(0 0 14px #d946efcc);
+  }
+}
+
+.zone-critical {
+  animation: pulseMagenta 1.4s ease-in-out infinite;
+}
+
+@keyframes liveBlink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.live-dot {
+  animation: liveBlink 1s ease-in-out infinite;
+}
+
+@keyframes glowMagenta {
+  0% {
+    box-shadow: 0 0 4px #d946ef30, 0 0 16px #d946ef15;
+  }
+
+  100% {
+    box-shadow: 0 0 12px #d946ef60, 0 0 40px #d946ef30;
+  }
+}
+
+.animate-glow-magenta {
+  animation: glowMagenta 2s ease-in-out infinite alternate;
+}
+
+/* ── Toast Cards ── */
+.toast-card {
+  @apply rounded-lg px-3 py-2.5 border backdrop-blur-xl text-sm;
+  animation: toastSlideIn 0.3s ease-out;
+}
+
+@keyframes toastSlideIn {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-progress {
+  animation: toastCountdown 6s linear forwards;
+}
+
+@keyframes toastCountdown {
+  0% {
+    width: 100%;
+  }
+
+  100% {
+    width: 0%;
+  }
+}
