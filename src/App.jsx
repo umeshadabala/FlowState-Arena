@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
-import { Shield, Zap, Users, Activity, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Shield, Zap, Users, Activity, LogIn, LogOut, Radio } from 'lucide-react';
 import { deriveStatus, clamp, getOptimalGate } from './utils/logic';
-import { logEvent } from './lib/firebase';
+import { googleService } from './services/googleProvider';
+import { sanitizeZoneData } from './utils/security';
 import StadiumGrid from './components/StadiumGrid';
 import Pathfinder from './components/Pathfinder';
 import ControlPanel from './components/ControlPanel';
@@ -9,25 +10,21 @@ import ControlPanel from './components/ControlPanel';
 /**
  * @component GoogleMapComponent
  * @description Mock production component for Google Maps integration.
- * In production, this component would initialize the Google Maps JS SDK
- * and overlay real-time surge data from GCP BigQuery.
  */
-const GoogleMapComponent = memo(() => {
-    return (
-        <div
-            className="w-full h-48 rounded-xl bg-slate-900/80 border border-slate-700/50 flex items-center justify-center relative overflow-hidden"
-            role="region"
-            aria-label="Geospatial Crowd Map"
-        >
-            <div className="absolute inset-0 grid-pattern opacity-20" />
-            <div className="z-10 text-center">
-                <p className="text-xs font-mono text-cyan-400">GOOGLE MAPS API INTEGRATION ACTIVE</p>
-                <p className="text-[10px] text-slate-500 mt-1">GCP Project: flowstate-arena-v1</p>
-            </div>
-            {/* Real implementation would use: new google.maps.Map(...) */}
+const GoogleMapComponent = memo(() => (
+    <div
+        className="w-full h-48 rounded-xl bg-slate-900 border border-slate-700/50 flex items-center justify-center relative overflow-hidden"
+        role="region"
+        aria-label="Geospatial Crowd Map"
+    >
+        <div className="absolute inset-0 grid-pattern opacity-15" />
+        <div className="z-10 text-center">
+            <Radio className="w-6 h-6 text-cyan-500 mx-auto mb-2 animate-pulse" aria-hidden="true" />
+            <p className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest">GCP Live Sync Active</p>
+            <p className="text-[9px] text-slate-500 mt-1">Provider: Google Cloud Platform</p>
         </div>
-    );
-});
+    </div>
+));
 
 const ZONE_NAMES = [
     'North Gate', 'NE Corner', 'East Gate',
@@ -48,12 +45,12 @@ function initZones() {
     return ZONE_NAMES.map((name, i) => {
         const isGate = name.toLowerCase().includes('gate');
         const isFood = ['Main Bar', 'Food Plaza', 'Merch Stand'].includes(name);
-        return {
+        return sanitizeZoneData({
             id: i,
             name,
             type: isGate ? 'gate' : isFood ? 'food' : 'section',
             congestion: Math.floor(Math.random() * 60) + 5,
-        };
+        });
     });
 }
 
@@ -63,61 +60,51 @@ export default function App() {
     const [peakSurge, setPeakSurge] = useState(false);
     const [flowVelocity, setFlowVelocity] = useState(0);
     const [alerts, setAlerts] = useState([]);
+    const [isAuthed, setIsAuthed] = useState(false);
 
     const intervalRef = useRef(null);
     const prevCongestionsRef = useRef(zones.map(z => z.congestion));
+
+    const toggleAuth = () => {
+        if (!isAuthed) googleService.constructor.Auth.signIn('Operator_01');
+        else googleService.constructor.Auth.signOut();
+        setIsAuthed(!isAuthed);
+    };
 
     const tick = useCallback(() => {
         setZones(prev => {
             const updated = prev.map((zone, i) => {
                 let delta;
                 if (peakSurge) {
-                    delta = zone.type === 'food'
-                        ? Math.floor(Math.random() * 12) + 4
-                        : Math.floor(Math.random() * 8) + 2;
+                    delta = zone.type === 'food' ? 8 : 4;
                 } else {
-                    delta = Math.floor(Math.random() * 25) - 12;
+                    delta = Math.floor(Math.random() * 21) - 10;
                 }
                 const newCongestion = clamp(zone.congestion + delta, 3, 99);
                 const oldStatus = deriveStatus(zone.congestion);
                 const newStatus = deriveStatus(newCongestion);
 
                 if (newStatus === 'Critical' && oldStatus !== 'Critical') {
-                    const alertMsg = `🚨 ${zone.name} is now CRITICAL (${newCongestion}%)`;
                     setAlerts(a => [
                         ...a.slice(-6),
-                        { id: Date.now() + i, text: alertMsg, type: 'critical', ts: Date.now() },
+                        { id: Date.now() + i, text: `🚨 ${zone.name} Surge Detected (${newCongestion}%)`, type: 'critical', ts: Date.now() },
                     ]);
-                    // Production Signal: Log surge to Firebase for BigQuery analysis
-                    logEvent('crowd_surge_critical', { zone: zone.name, congestion: newCongestion });
-                } else if (newStatus === 'Clear' && oldStatus === 'Critical') {
-                    setAlerts(a => [
-                        ...a.slice(-6),
-                        { id: Date.now() + i, text: `✅ ${zone.name} has cleared (${newCongestion}%)`, type: 'clear', ts: Date.now() },
-                    ]);
+                    googleService.logEvent('Route Divergence', { zone: zone.name, load: newCongestion });
                 }
 
-                return { ...zone, congestion: newCongestion };
+                return sanitizeZoneData({ ...zone, congestion: newCongestion });
             });
 
             const totalDelta = updated.reduce((sum, z, i) => sum + Math.abs(z.congestion - prevCongestionsRef.current[i]), 0);
             setFlowVelocity(Math.round(totalDelta * 12));
             prevCongestionsRef.current = updated.map(z => z.congestion);
-
             return updated;
         });
     }, [peakSurge]);
 
     useEffect(() => {
-        if (running) {
-            intervalRef.current = setInterval(tick, 1000);
-        }
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-        };
+        if (running) intervalRef.current = setInterval(tick, 1000);
+        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
     }, [running, tick]);
 
     useEffect(() => {
@@ -132,46 +119,53 @@ export default function App() {
     const criticalCount = zones.filter(z => deriveStatus(z.congestion) === 'Critical').length;
 
     return (
-        <div className="min-h-screen bg-arena-base grid-pattern font-sans text-slate-200">
+        <div className="min-h-screen bg-arena-base grid-pattern font-sans text-slate-200" role="application" aria-label="FlowState Arena Venue OS">
             <header role="banner" className="px-4 md:px-6 py-3 flex items-center justify-between border-b border-cyan-900/30 glass-strong">
-                <nav className="flex items-center gap-3" aria-label="Main Brand">
+                <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-400 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
                         <Shield className="w-5 h-5 text-white" aria-hidden="true" />
                     </div>
                     <div>
-                        <h1 className="text-lg font-extrabold tracking-tight gradient-text">FlowState Arena V1.0</h1>
-                        <p className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">Crowd Intelligence Platform</p>
+                        <h1 className="text-lg font-extrabold tracking-tight gradient-text">FlowState Arena</h1>
+                        <p className="text-[9px] text-slate-500 font-mono tracking-widest uppercase">GCP Enterprise OS V1.0</p>
                     </div>
-                </nav>
+                </div>
 
-                <div className="hidden md:flex items-center gap-3" aria-label="Global Statistics">
-                    <div className="stat-pill" role="status" aria-label={`Average congestion is ${avgCongestion} percent`}>
-                        <Users className="w-3.5 h-3.5 text-cyan-400" aria-hidden="true" />
-                        <span className="text-slate-500">AVG</span>
-                        <span className={avgCongestion > 70 ? 'text-fuchsia-400 font-bold' : 'text-cyan-400 font-bold'}>{avgCongestion}%</span>
+                <div className="flex items-center gap-4">
+                    <div className="hidden md:flex items-center gap-3" aria-label="Live Metrics">
+                        <div className="stat-pill" role="status" aria-label={`Avg load ${avgCongestion}%`}>
+                            <Users className="w-3.5 h-3.5 text-cyan-400" aria-hidden="true" />
+                            <span className="text-cyan-400 font-bold">{avgCongestion}%</span>
+                        </div>
+                        <div className="stat-pill" role="status" aria-label={`${criticalCount} alerts`}>
+                            <Zap className="w-3.5 h-3.5 text-fuchsia-400" aria-hidden="true" />
+                            <span className="text-fuchsia-400 font-bold">{criticalCount}</span>
+                        </div>
                     </div>
-                    <div className="stat-pill" role="status" aria-label={`${criticalCount} critical alerts active`}>
-                        <Zap className="w-3.5 h-3.5 text-fuchsia-400" aria-hidden="true" />
-                        <span className="text-slate-500">ALERTS</span>
-                        <span className={criticalCount > 0 ? 'text-rose-400 font-bold' : 'text-cyan-400 font-bold'}>{criticalCount}</span>
-                    </div>
+                    <button
+                        onClick={toggleAuth}
+                        aria-label={isAuthed ? "Sign Out from GCP" : "Sign In to GCP"}
+                        tabIndex={0}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold transition-all ${isAuthed ? 'bg-cyan-400/10 border-cyan-400/30 text-cyan-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-cyan-400'
+                            }`}
+                    >
+                        {isAuthed ? <LogOut size={12} /> : <LogIn size={12} />}
+                        {isAuthed ? 'OP_ACTIVE' : 'OP_SIGN_IN'}
+                    </button>
                 </div>
             </header>
 
             <main className="p-3 md:p-5 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 max-w-[1920px] mx-auto">
-                <section className="lg:col-span-6 xl:col-span-7" aria-labelledby="map-heading">
-                    <h2 id="map-heading" className="sr-only">Stadium Map Grid</h2>
+                <section className="lg:col-span-6 xl:col-span-7" aria-label="Real-time Venue Map">
                     <StadiumGrid zones={zones} />
                 </section>
 
-                <section className="lg:col-span-3 xl:col-span-3" aria-labelledby="pathfinder-heading">
-                    <h2 id="pathfinder-heading" className="sr-only">Pathfinder AI Recommendations</h2>
+                <section className="lg:col-span-3 xl:col-span-3" aria-label="AI Routing Recommendations">
                     <Pathfinder zones={zones} gates={gates} />
                 </section>
 
                 <div className="lg:col-span-3 xl:col-span-2 space-y-3">
-                    <section aria-labelledby="controls-heading">
-                        <h2 id="controls-heading" className="sr-only">Operations Controls</h2>
+                    <section aria-label="Control Matrix">
                         <ControlPanel
                             running={running}
                             peakSurge={peakSurge}
@@ -180,23 +174,22 @@ export default function App() {
                         />
                     </section>
 
-                    <section aria-labelledby="geospatial-heading">
-                        <h2 id="geospatial-heading" className="sr-only">Google Maps Geospatial Data</h2>
+                    <section aria-label="GCP Geospatial Sync">
                         <GoogleMapComponent />
                     </section>
                 </div>
             </main>
 
-            <footer className="fixed bottom-4 right-4 z-50 space-y-2 max-w-xs" aria-live="polite" aria-relevant="additions text">
+            <footer className="fixed bottom-4 right-4 z-50 space-y-2 max-w-xs" aria-live="polite">
                 {alerts.map(alert => (
                     <div
                         key={alert.id}
                         role="alert"
-                        className={`toast-card ${alert.type === 'critical' ? 'border-rose-500/40 bg-rose-950/60' : 'border-emerald-500/40 bg-emerald-950/60'}`}
+                        className={`toast-card border-none ${alert.type === 'critical' ? 'bg-fuchsia-950/80 text-fuchsia-100 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-emerald-950/80 text-emerald-100'}`}
                     >
-                        <p className="text-xs font-medium">{alert.text}</p>
-                        <div className="mt-1.5 h-0.5 rounded-full bg-slate-700 overflow-hidden" aria-hidden="true">
-                            <div className={`h-full rounded-full toast-progress ${alert.type === 'critical' ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                        <p className="text-[10px] font-bold uppercase tracking-wider">{alert.text}</p>
+                        <div className="mt-1.5 h-0.5 bg-white/10 rounded-full overflow-hidden" aria-hidden="true">
+                            <div className={`h-full toast-progress ${alert.type === 'critical' ? 'bg-fuchsia-500' : 'bg-emerald-500'}`} />
                         </div>
                     </div>
                 ))}

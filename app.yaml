@@ -1,0 +1,11 @@
+runtime: nodejs20
+instance_class: F1
+env_variables:
+  NODE_ENV: "production"
+  VITE_GCP_API_KEY: "YOUR_PRODUCTION_API_KEY"
+handlers:
+  - url: /.*
+    static_files: dist/index.html
+    upload: dist/index.html
+  - url: /
+    static_dir: dist
